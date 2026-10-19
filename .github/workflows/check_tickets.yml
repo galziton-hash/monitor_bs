@@ -1,0 +1,128 @@
+name: HBS Ticket Checker
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+on:
+  # schedule disabled - cron-job.org triggers this via workflow_dispatch every 3 minutes
+  # - cron: "*/3 * * * *"
+  workflow_dispatch:          # triggered by cron-job.org + allows manual runs from Actions tab
+
+# Cancel any still-running check if a new one is triggered
+concurrency:
+  group: ticket-check
+  cancel-in-progress: true
+
+jobs:
+  check-seats:
+    name: Check available seats (sections 119-123)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8        # hard kill before next run starts
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python setup ──────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # ── 3. Install Python deps ───────────────────────────────────────────────
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # ── 4. Install Playwright browser ────────────────────────────────────────
+      # Note: we do NOT cache the browser binary because Playwright auto-updates
+      # and the cached binary becomes mismatched with the new package version,
+      # causing "Executable doesn't exist" errors. A fresh install takes ~15s.
+      - name: Install Playwright Chromium
+        run: python -m playwright install chromium --with-deps
+
+      # ── 5. Run the checker ───────────────────────────────────────────────────
+      - name: Run ticket checker
+        env:
+          LOGIN_EMAIL:        ${{ secrets.LOGIN_EMAIL }}
+          LOGIN_PASSWORD:     ${{ secrets.LOGIN_PASSWORD }}
+          NTFY_TOPIC:         ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER:        ${{ vars.NTFY_SERVER || 'https://ntfy.sh' }}
+          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENTS:   galziton@gmail.com,eladb8@gmail.com
+        run: python check_tickets.py
+
+      # ── 6. Alert if 3+ consecutive failures ──────────────────────────────────
+      - name: Alert on 3 consecutive failures
+        if: failure()
+        env:
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          NTFY_TOPIC:  ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER: ${{ vars.NTFY_SERVER || 'https://ntfy.sh' }}
+          REPO:        ${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import os, json, urllib.request
+
+          token  = os.environ['GH_TOKEN']
+          repo   = os.environ.get('REPO', 'galziton-hash/HBS_Shefa')
+          topic  = os.environ.get('NTFY_TOPIC', 'hbs-shefa')
+          server = os.environ.get('NTFY_SERVER', 'https://ntfy.sh')
+
+          # Fetch last 10 completed runs of this workflow
+          url = (f"https://api.github.com/repos/{repo}/actions/workflows"
+                 f"/check_tickets.yml/runs?per_page=10&status=completed")
+          req = urllib.request.Request(url, headers={
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+          })
+          data = json.loads(urllib.request.urlopen(req).read())
+          runs = data.get('workflow_runs', [])
+
+          # Count consecutive failures in completed runs
+          # (current run is still "in_progress" in the API, so we add +1)
+          consecutive = 0
+          for r in runs:
+              if r['conclusion'] == 'failure':
+                  consecutive += 1
+              else:
+                  break
+          consecutive += 1   # +1 for the current failing run
+
+          print(f"Consecutive failures (including current run): {consecutive}")
+
+          if consecutive >= 3:
+              minutes = consecutive * 3
+              msg = (
+                  f"The ticket checker has FAILED {consecutive} times in a row!\n\n"
+                  f"It has been broken for ~{minutes} minutes.\n"
+                  f"No tickets are being checked during this time.\n\n"
+                  f"Fix it here:\n"
+                  f"https://github.com/{repo}/actions"
+              )
+              payload = json.dumps({
+                  'topic':    topic,
+                  'title':    f'HBS Checker DOWN - {consecutive} failures in a row!',
+                  'message':  msg,
+                  'priority': 5,
+                  'tags':     ['warning', 'rotating_light', 'sos'],
+              }).encode()
+              req2 = urllib.request.Request(
+                  server, data=payload, method='POST',
+                  headers={'Content-Type': 'application/json'}
+              )
+              urllib.request.urlopen(req2)
+              print(f"ALERT sent! Topic: {topic}")
+          else:
+              print(f"Only {consecutive} failure(s) — no alert yet (threshold: 3).")
+          EOF
+
+      # ── 7. Upload screenshots only on failure (saves storage) ────────────────
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_number }}
+          path: screenshots/
+          retention-days: 1
+          if-no-files-found: ignore
