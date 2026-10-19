@@ -49,7 +49,7 @@ jobs:
           NTFY_SERVER:        ${{ vars.NTFY_SERVER || 'https://ntfy.sh' }}
           EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
-          EMAIL_RECIPIENTS:   galziton@gmail.com,eladb8@gmail.com
+          EMAIL_RECIPIENTS:   ${{ secrets.EMAIL_RECIPIENTS }}
         run: python check_tickets.py
 
       # ── 6. Alert if 3+ consecutive failures ──────────────────────────────────
@@ -65,7 +65,7 @@ jobs:
           import os, json, urllib.request
 
           token  = os.environ['GH_TOKEN']
-          repo   = os.environ.get('REPO', 'galziton-hash/HBS_Shefa')
+          repo   = os.environ.get('REPO', 'galziton-hash/monitor_bs')
           topic  = os.environ.get('NTFY_TOPIC', 'hbs-shefa')
           server = os.environ.get('NTFY_SERVER', 'https://ntfy.sh')
 

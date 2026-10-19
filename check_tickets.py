@@ -66,15 +66,14 @@ TARGET_URL  = ("https://hbsfc.eventim-inhouse.co.il/webshop/webticket/"
 EMAIL    = os.environ.get("LOGIN_EMAIL",    "")
 PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
 
-NTFY_TOPIC  = os.environ.get("NTFY_TOPIC",  "hbs-shefa")
+NTFY_TOPIC  = os.environ.get("NTFY_TOPIC",  "")
 NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh")
 
 EMAIL_SENDER       = os.environ.get("EMAIL_SENDER",       "")
 EMAIL_APP_PASSWORD = os.environ.get("EMAIL_APP_PASSWORD", "")
 EMAIL_RECIPIENTS   = [
     addr.strip()
-    for addr in os.environ.get("EMAIL_RECIPIENTS",
-                               "galziton@gmail.com,eladb8@gmail.com").split(",")
+    for addr in os.environ.get("EMAIL_RECIPIENTS", "").split(",")
     if addr.strip()
 ]
 
